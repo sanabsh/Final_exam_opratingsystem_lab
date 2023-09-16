@@ -1,0 +1,90 @@
+#include<stdio.h>
+#include<unistd.h>
+#include<stdlib.h>
+#include<sys/wait.h>
+#include<sys/stat.h>
+#include<sys/mman.h>
+#include<sys/types.h>
+#include<fcntl.h>
+#include<semaphore.h>
+#include<math.h>
+float MyFunc(int x){
+	float y=((x*x*x)/3) - 3*sin(x);   
+	return y;
+}
+float integral(int from, int to)
+{
+return (MyFunc(from) + MyFunc(to))  / 2;
+}
+
+int main()
+{
+int i;
+float integP = 0;
+float resCHshm;
+pid_t pid1;
+pid_t pid2;
+sem_t *parrent;
+sem_t *child1;
+sem_t *child2;
+parrent=sem_open("parrent",O_CREAT,S_IRUSR | S_IWUSR);
+child1=sem_open("child",O_CREAT,S_IRUSR | S_IWUSR);
+child2=sem_open("child",O_CREAT,S_IRUSR | S_IWUSR);
+sem_init(child1,1,1);
+sem_init(child2,1,1);
+sem_init(parrent,1,0);	
+float *share_Memory =mmap(0, sizeof (float), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+
+	for (i=0;i<10;i++)
+	{
+
+	pid1=fork();
+        pid2=fork();
+
+	if(pid1==0){
+
+	sem_wait(child1);
+        resCHshm=integral(i, i+1);
+        printf("child1 start: %d && child result: %f" ,i,resCHshm);
+	*share_Memory=resCHshm;
+	sem_post(parrent);
+	exit(0);
+	
+        }else if(pid2==0){
+
+	sem_wait(child2);
+        resCHshm=integral(i, i+1);
+        printf("child2 start: %d && child result: %f" ,i,resCHshm);
+	*share_Memory=resCHshm;
+	sem_post(parrent);
+	exit(0);
+
+	}
+}
+
+	for(int j=0;j<10;j++)
+	{
+                int status1;
+		wait(&status1);
+		int status2;
+		wait(&status2);
+
+		if(WIFEXITED(status1))
+		{
+		sem_wait(parrent);
+		integP+=*share_Memory;
+              printf("\n parent read: %f && %d\n" , *share_Memory,WEXITSTATUS(status1));
+		sem_post(child1);
+		}
+
+               if(WIFEXITED(status2))
+		{
+		sem_wait(parrent);
+		integP+=*share_Memory;
+              printf("\n parent read: %f && %d\n" , *share_Memory,WEXITSTATUS(status2));
+		sem_post(child2);
+		}
+	}
+	printf("integral is = %f\r\n",integP);
+	return 0;
+}
